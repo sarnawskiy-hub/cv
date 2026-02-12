@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Моніторинг абонентів на комутаторах</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --primary-color: #6366f1;
+      --primary-hover: #4f46e5;
+      --secondary-color: #8b5cf6;
+      --success-color: #10b981;
+      --danger-color: #ef4444;
+      --warning-color: #f59e0b;
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --border-color: #334155;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 2rem;
+      min-height: 100vh;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: var(--text-primary);
+      background: radial-gradient(circle at top, #1e2b59 0%, var(--bg-primary) 45%);
+    }
+    .dashboard { display: grid; gap: 1rem; }
+    .glass {
+      background: linear-gradient(135deg, rgba(30,41,59,.65), rgba(15,23,42,.85));
+      border: 1px solid rgba(148,163,184,.2);
+      border-radius: 16px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 10px 32px rgba(2,6,23,.35);
+    }
+    .header { padding: 1.5rem; animation: fadeInDown .45s ease; }
+    .header h1 { margin: 0 0 .5rem; font-size: clamp(1.8rem, 4vw, 2.5rem); }
+    .header p { margin: 0; color: var(--text-secondary); }
+
+    .panel { padding: 1rem; display: grid; gap: 1rem; animation: fadeInUp .45s ease; }
+    .button-row { display: flex; gap: .75rem; flex-wrap: wrap; }
+    button {
+      border: 0; border-radius: 10px; color: #fff;
+      padding: .65rem 1rem; cursor: pointer; font-weight: 600;
+      transition: transform .2s ease, filter .2s ease;
+    }
+    button:hover { transform: scale(1.03); filter: brightness(1.06); }
+    .btn-primary { background: linear-gradient(135deg, var(--primary-color), var(--secondary-color)); }
+    .btn-success { background: linear-gradient(135deg, #059669, var(--success-color)); }
+    .btn-warning { background: linear-gradient(135deg, #d97706, var(--warning-color)); }
+    .btn-muted { background: #334155; }
+    .btn-danger { background: linear-gradient(135deg, #dc2626, var(--danger-color)); }
+
+    #updateDataBtn:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+      transform: none;
+      filter: none;
+    }
+
+    .dropzone {
+      border: 2px dashed var(--border-color); border-radius: 12px; padding: 1.2rem;
+      text-align: center; color: var(--text-secondary); cursor: pointer;
+    }
+
+    .stats { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 1rem; }
+    .stat { padding: 1rem; display: grid; gap: .4rem; }
+    .stat span { font-size: .875rem; color: var(--text-secondary); }
+    .stat strong { font-size: 1.35rem; }
+
+    .table-wrap { padding: 1rem; display: grid; gap: 1rem; }
+    .search-wrap {
+      display: flex; align-items: center; gap: .5rem; padding: .6rem .8rem;
+      border: 1px solid var(--border-color); border-radius: 10px;
+      background: rgba(15,23,42,.7);
+    }
+    .search-wrap input, .filter-group input {
+      width: 100%; border: 0; outline: none; background: transparent; color: var(--text-primary);
+    }
+    .quick-filters { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .quick-filters button {
+      background: #0f172a; border: 1px solid var(--border-color); border-radius: 999px;
+      color: var(--text-primary); padding: .4rem .75rem;
+    }
+    .quick-filters button.active { background: var(--primary-color); border-color: transparent; }
+
+    .filters { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: .75rem; }
+    .filter-group { display: grid; gap: .3rem; font-size: .875rem; color: var(--text-secondary); }
+    .filter-group input {
+      border: 1px solid var(--border-color); border-radius: 8px; padding: .55rem .6rem;
+      background: rgba(15,23,42,.7);
+    }
+
+    .table-scroll { max-height: 62vh; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+    th, td { border: 1px solid var(--border-color); padding: .55rem .6rem; text-align: left; }
+    th { position: sticky; top: 0; background: #0f172a; cursor: pointer; z-index: 2; }
+    td a { color: #a5b4fc; }
+    .row-warning { background: rgba(245,158,11,.18); }
+    .row-critical { background: rgba(239,68,68,.2); }
+
+    .toast-stack { position: fixed; right: 1rem; top: 1rem; display: grid; gap: .6rem; z-index: 99; }
+    .toast {
+      padding: .65rem .8rem; border-radius: 10px; color: #fff;
+      box-shadow: 0 6px 20px rgba(15,23,42,.4);
+    }
+    .toast.success { background: var(--success-color); }
+    .toast.error { background: var(--danger-color); }
+    .toast.info { background: var(--primary-color); }
+
+    @keyframes fadeInDown { from { opacity: 0; transform: translateY(-6px);} to { opacity: 1; transform: translateY(0);} }
+    @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px);} to { opacity: 1; transform: translateY(0);} }
+
+    @media (max-width: 900px) { body { padding: 1rem; } }
+  </style>
+</head>
+<body>
+  <main class="dashboard">
+    <section class="glass header">
+      <h1>Моніторинг абонентів на комутаторах</h1>
+      <p>Односторінковий backend-less інструмент для аналізу Excel-файлів локально в браузері.</p>
+    </section>
+
+    <section class="glass panel">
+      <div class="button-row">
+        <button id="updateDataBtn" class="btn-primary">Оновити дані</button>
+        <button id="uploadBtn" class="btn-success">Завантажити файл</button>
+        <button id="exportBtn" class="btn-warning" hidden>Експорт</button>
+        <button id="clearFiltersBtn" class="btn-warning">Очистити фільтри</button>
+        <button id="resetDataBtn" class="btn-danger">Скинути дані</button>
+      </div>
+      <input id="fileInput" type="file" accept=".xls,.xlsx" hidden />
+      <div id="dropzone" class="dropzone">Перетягніть файл сюди або натисніть для вибору</div>
+    </section>
+
+    <section class="stats">
+      <article class="glass stat"><span>Всього записів</span><strong id="totalCount">0</strong></article>
+      <article class="glass stat"><span>Відфільтровано</span><strong id="filteredCount">0</strong></article>
+      <article class="glass stat"><span>Останнє оновлення</span><strong id="lastUpdated">—</strong></article>
+    </section>
+
+    <section class="glass table-wrap">
+      <div class="search-wrap">
+        <span>🔍</span>
+        <input id="globalSearch" type="text" placeholder="Глобальний пошук..." />
+      </div>
+
+      <div class="quick-filters">
+        <button data-qf="3" id="qf3">Ще трішечки (3)</button>
+        <button data-qf="1,2" id="qf12">Майже порожні (1-2)</button>
+        <button data-qf="0" id="qf0">Під демонтаж (0)</button>
+        <button id="qfAll">Всі</button>
+      </div>
+
+      <div class="filters" id="filters"></div>
+
+      <div class="table-scroll">
+        <table>
+          <thead id="tableHead"></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="toasts" class="toast-stack"></div>
+
+  <script>
+    const STORAGE_KEY = 'subscriber-monitor-single-html-v1';
+    const REPORT_URL = 'https://dcs.ug.local/reports/puXlsExport.php?tid=37&cityid=115072998';
+    const FILTER_CONFIG = [
+      { key: 'city', label: 'Місто', aliases: ['Місто', 'City', 'Город', 'Населений пункт'] },
+      { key: 'address', label: 'Адреса', aliases: ['Адреса', 'Address', 'Улица', 'Локація'] },
+      {
+        key: 'device',
+        label: 'Пристрій',
+        aliases: ['Пристрій', 'Device', 'Комутатор', 'Коммутатор', 'Switch', 'Устройство', 'Device Name']
+      },
+      {
+        key: 'type',
+        label: 'Тип',
+        aliases: ['Тип', 'Type', 'Тип порта', 'Port Type', 'Service Type', 'Тип устройства']
+      }
+    ];
+
+    const state = {
+      rows: [],
+      columns: [],
+      clientsColumn: null,
+      mappedFilters: {},
+      globalSearch: '',
+      quickFilters: [],
+      columnFilters: { city: '', address: '', device: '', type: '' },
+      sort: null,
+      lastUpdated: '—'
+    };
+
+    const els = {
+      fileInput: document.getElementById('fileInput'),
+      dropzone: document.getElementById('dropzone'),
+      updateDataBtn: document.getElementById('updateDataBtn'),
+      uploadBtn: document.getElementById('uploadBtn'),
+      exportBtn: document.getElementById('exportBtn'),
+      clearFiltersBtn: document.getElementById('clearFiltersBtn'),
+      resetDataBtn: document.getElementById('resetDataBtn'),
+      totalCount: document.getElementById('totalCount'),
+      filteredCount: document.getElementById('filteredCount'),
+      lastUpdated: document.getElementById('lastUpdated'),
+      globalSearch: document.getElementById('globalSearch'),
+      filters: document.getElementById('filters'),
+      tableHead: document.getElementById('tableHead'),
+      tableBody: document.getElementById('tableBody'),
+      qf3: document.getElementById('qf3'),
+      qf12: document.getElementById('qf12'),
+      qf0: document.getElementById('qf0'),
+      qfAll: document.getElementById('qfAll'),
+      toasts: document.getElementById('toasts')
+    };
+
+    const asString = (v) => v == null ? '' : String(v).trim();
+    const norm = (v) => asString(v).toLowerCase();
+    const keyNorm = (v) => norm(v).replace(/[^a-zа-яіїєґ0-9]+/giu, '');
+
+    function matchesAlias(column, alias) {
+      const c = keyNorm(column);
+      const a = keyNorm(alias);
+      if (!c || !a) return false;
+      return c === a || c.includes(a) || a.includes(c);
+    }
+
+
+    function parseClientNumber(value) {
+      const raw = asString(value);
+      if (!raw) return NaN;
+      const normalized = raw.replace(/\s+/g, '').replace(',', '.');
+      const number = Number(normalized);
+      if (!Number.isNaN(number)) return number;
+      const match = normalized.match(/-?\d+(?:\.\d+)?/);
+      return match ? Number(match[0]) : NaN;
+    }
+
+
+    let updateCooldownTimer = null;
+
+    function startUpdateCooldown(seconds = 30) {
+      const startedAt = Date.now();
+      els.updateDataBtn.disabled = true;
+      els.updateDataBtn.textContent = `Оновити дані (${seconds})`;
+
+      if (updateCooldownTimer) clearInterval(updateCooldownTimer);
+      updateCooldownTimer = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+        const left = seconds - elapsed;
+        if (left <= 0) {
+          clearInterval(updateCooldownTimer);
+          updateCooldownTimer = null;
+          els.updateDataBtn.disabled = false;
+          els.updateDataBtn.textContent = 'Оновити дані';
+          return;
+        }
+        els.updateDataBtn.textContent = `Оновити дані (${left})`;
+      }, 250);
+    }
+
+    function showToast(text, type = 'info') {
+      const node = document.createElement('div');
+      node.className = `toast ${type}`;
+      node.textContent = text;
+      els.toasts.appendChild(node);
+      setTimeout(() => node.remove(), 3200);
+    }
+
+    function detectClientsColumn(columns) {
+      const preferred = ['Клиенти', 'Клиенты', 'Клієнти', 'Clients', 'Client', 'Абоненти', 'Абоненты'];
+      return columns.find(c => preferred.some(p => matchesAlias(c, p))) || null;
+    }
+
+    function mapFilterColumns(columns) {
+      const mapped = {};
+      FILTER_CONFIG.forEach(({ key, aliases }) => {
+        const normalizedColumns = columns.map((col) => ({
+          raw: col,
+          norm: keyNorm(col)
+        }));
+
+        let found = null;
+
+        // 1) exact alias match first
+        for (const alias of aliases) {
+          const aliasNorm = keyNorm(alias);
+          const exact = normalizedColumns.find((col) => col.norm === aliasNorm);
+          if (exact) {
+            found = exact.raw;
+            break;
+          }
+        }
+
+        // 2) partial/fuzzy fallback
+        if (!found) {
+          found = columns.find((col) => aliases.some((alias) => matchesAlias(col, alias))) || null;
+        }
+
+        if (found) mapped[key] = found;
+      });
+      return mapped;
+    }
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        rows: state.rows,
+        globalSearch: state.globalSearch,
+        quickFilters: state.quickFilters,
+        columnFilters: state.columnFilters,
+        sort: state.sort,
+        lastUpdated: state.lastUpdated
+      }));
+    }
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        state.rows = Array.isArray(saved.rows) ? saved.rows : [];
+        state.globalSearch = asString(saved.globalSearch);
+        state.quickFilters = Array.isArray(saved.quickFilters) ? saved.quickFilters : [];
+        state.columnFilters = { city: '', address: '', device: '', type: '', ...(saved.columnFilters || {}) };
+        state.sort = saved.sort?.column ? saved.sort : null;
+        state.lastUpdated = asString(saved.lastUpdated) || '—';
+      } catch (_) {}
+    }
+
+    function renderFilterInputs() {
+      const activeInput = els.filters.querySelector('input[data-filter-key]:focus');
+      const activeFilterKey = activeInput ? activeInput.dataset.filterKey : null;
+      const selectionStart = activeInput ? activeInput.selectionStart : null;
+      const selectionEnd = activeInput ? activeInput.selectionEnd : null;
+
+      els.filters.innerHTML = '';
+      FILTER_CONFIG.forEach((cfg) => {
+        const wrap = document.createElement('label');
+        wrap.className = 'filter-group';
+        wrap.innerHTML = `<span>${cfg.label}</span>`;
+        const input = document.createElement('input');
+        input.placeholder = `Пошук: ${cfg.label}`;
+        input.value = state.columnFilters[cfg.key] || '';
+        input.disabled = !state.mappedFilters[cfg.key];
+        input.dataset.filterKey = cfg.key;
+
+        const listId = `list-${cfg.key}`;
+        input.setAttribute('list', listId);
+        const datalist = document.createElement('datalist');
+        datalist.id = listId;
+
+        if (state.mappedFilters[cfg.key]) {
+          const col = state.mappedFilters[cfg.key];
+          const optionRows = getFilteredRows({ excludeFilterKey: cfg.key, applySort: false });
+          [...new Set(optionRows.map(r => asString(r[col])).filter(Boolean))]
+            .sort((a,b) => a.localeCompare(b, 'uk', { sensitivity: 'base' }))
+            .forEach(item => {
+              const opt = document.createElement('option');
+              opt.value = item;
+              datalist.appendChild(opt);
+            });
+        }
+
+        input.addEventListener('input', () => {
+          state.columnFilters[cfg.key] = input.value;
+          rerender();
+        });
+
+        wrap.appendChild(input);
+        wrap.appendChild(datalist);
+        els.filters.appendChild(wrap);
+      });
+
+      if (activeFilterKey) {
+        const restoredInput = els.filters.querySelector(`input[data-filter-key="${activeFilterKey}"]`);
+        if (restoredInput) {
+          restoredInput.focus();
+          if (selectionStart !== null && selectionEnd !== null) {
+            restoredInput.setSelectionRange(selectionStart, selectionEnd);
+          }
+        }
+      }
+    }
+
+    function getFilteredRows(options = {}) {
+      const { excludeFilterKey = null, applySort = true } = options;
+      let rows = [...state.rows];
+      if (state.quickFilters.length && state.clientsColumn) {
+        rows = rows.filter(r => state.quickFilters.includes(parseClientNumber(r[state.clientsColumn])));
+      }
+
+      if (state.globalSearch) {
+        const term = norm(state.globalSearch);
+        rows = rows.filter(r => Object.values(r).some(v => norm(v).includes(term)));
+      }
+
+      Object.entries(state.columnFilters).forEach(([key, val]) => {
+        const col = state.mappedFilters[key];
+        if (!col || !val || key === excludeFilterKey) return;
+        rows = rows.filter(r => norm(r[col]).includes(norm(val)));
+      });
+
+      if (applySort && state.sort) {
+        rows.sort((a,b) => {
+          const av = asString(a[state.sort.column]);
+          const bv = asString(b[state.sort.column]);
+          const an = Number(av), bn = Number(bv);
+          const cmp = (!Number.isNaN(an) && !Number.isNaN(bn))
+            ? an - bn
+            : av.localeCompare(bv, 'uk', { numeric: true, sensitivity: 'base' });
+          return state.sort.direction === 'asc' ? cmp : -cmp;
+        });
+      }
+
+      return rows;
+    }
+
+    function renderTable(rows) {
+      els.tableHead.innerHTML = '';
+      els.tableBody.innerHTML = '';
+
+      const headRow = document.createElement('tr');
+      state.columns.forEach(col => {
+        const th = document.createElement('th');
+        const active = state.sort?.column === col;
+        th.textContent = col + (active ? (state.sort.direction === 'asc' ? ' ↑' : ' ↓') : '');
+        th.addEventListener('click', () => {
+          if (state.sort?.column === col) {
+            state.sort.direction = state.sort.direction === 'asc' ? 'desc' : 'asc';
+          } else {
+            state.sort = { column: col, direction: 'asc' };
+          }
+          rerender();
+        });
+        headRow.appendChild(th);
+      });
+      els.tableHead.appendChild(headRow);
+
+      rows.forEach((row, i) => {
+        const tr = document.createElement('tr');
+        const countVal = state.clientsColumn ? parseClientNumber(row[state.clientsColumn]) : NaN;
+        if (countVal === 0) tr.classList.add('row-critical');
+        else if (countVal <= 2) tr.classList.add('row-warning');
+
+        state.columns.forEach(col => {
+          const td = document.createElement('td');
+          const val = asString(row[col]);
+          const isLink = /link|посил/i.test(col) && /^https?:\/\//i.test(val);
+          if (isLink) {
+            const a = document.createElement('a');
+            a.href = val;
+            a.target = '_blank';
+            a.rel = 'noreferrer';
+            a.textContent = val;
+            td.appendChild(a);
+          } else {
+            td.textContent = val;
+          }
+          tr.appendChild(td);
+        });
+        tr.dataset.idx = i;
+        els.tableBody.appendChild(tr);
+      });
+    }
+
+    function updateStats(filteredRows) {
+      els.totalCount.textContent = String(state.rows.length);
+      els.filteredCount.textContent = String(filteredRows.length);
+      els.lastUpdated.textContent = state.lastUpdated;
+      els.exportBtn.hidden = !state.rows.length;
+
+      setQuickBtnState(els.qf3, [3]);
+      setQuickBtnState(els.qf12, [1,2]);
+      setQuickBtnState(els.qf0, [0]);
+      els.qfAll.classList.toggle('active', state.quickFilters.length === 0);
+    }
+
+    function setQuickBtnState(button, values) {
+      const active = values.every(v => state.quickFilters.includes(v));
+      button.classList.toggle('active', active);
+    }
+
+    function rerender() {
+      state.columns = state.rows.length ? Object.keys(state.rows[0]) : [];
+      state.clientsColumn = detectClientsColumn(state.columns);
+      state.mappedFilters = mapFilterColumns(state.columns);
+      renderFilterInputs();
+      const filtered = getFilteredRows();
+      renderTable(filtered);
+      updateStats(filtered);
+      saveState();
+    }
+
+    async function parseFile(file) {
+      const ab = await file.arrayBuffer();
+      const workbook = XLSX.read(ab, { type: 'array' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+      if (!jsonData.length) {
+        showToast('Файл не містить даних.', 'error');
+        return;
+      }
+      state.rows = jsonData;
+      state.lastUpdated = new Date().toLocaleString('uk-UA');
+      showToast(`Завантажено ${jsonData.length} записів із файлу ${file.name}.`, 'success');
+      rerender();
+    }
+
+
+    async function openFileUsingUploadMethod(preferDownloads = false) {
+      if (preferDownloads && 'showOpenFilePicker' in window) {
+        try {
+          const [h] = await window.showOpenFilePicker({
+            startIn: 'downloads',
+            multiple: false,
+            types: [{ description: 'Excel Files', accept: {
+              'application/vnd.ms-excel': ['.xls'],
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']
+            }}]
+          });
+          const file = await h.getFile();
+          await parseFile(file);
+          return true;
+        } catch (_) {
+          // If picker is cancelled/blocked, fallback to same upload method via hidden input.
+        }
+      }
+
+      els.fileInput.click();
+      return false;
+    }
+
+
+    function triggerReportRequestInBackground() {
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.width = '1px';
+      iframe.style.height = '1px';
+      iframe.style.opacity = '0';
+      iframe.style.pointerEvents = 'none';
+      iframe.style.border = '0';
+      iframe.setAttribute('aria-hidden', 'true');
+      iframe.src = REPORT_URL;
+      document.body.appendChild(iframe);
+
+      setTimeout(() => {
+        iframe.remove();
+      }, 3000);
+    }
+
+    function handleUpdateData() {
+      if (els.updateDataBtn.disabled) {
+        return;
+      }
+
+      startUpdateCooldown(30);
+
+      // Keep only background request to DCS report without opening file picker.
+      triggerReportRequestInBackground();
+      showToast('Запит на оновлення відправлено. Завантажений файл оберіть кнопкою "Завантажити файл".', 'info');
+    }
+
+    function clearFilters(notify = true) {
+      state.globalSearch = '';
+      state.quickFilters = [];
+      state.columnFilters = { city: '', address: '', device: '', type: '' };
+      els.globalSearch.value = '';
+      if (notify) showToast('Фільтри очищено.', 'info');
+      rerender();
+    }
+
+    function resetData() {
+      state.rows = [];
+      state.sort = null;
+      state.lastUpdated = '—';
+      clearFilters(false);
+      localStorage.removeItem(STORAGE_KEY);
+      showToast('Дані та стан видалено.', 'info');
+      rerender();
+    }
+
+    function exportFiltered() {
+      const filtered = getFilteredRows();
+      if (!filtered.length) {
+        showToast('Немає даних для експорту.', 'error');
+        return;
+      }
+      const sheet = XLSX.utils.json_to_sheet(filtered);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, sheet, 'Filtered');
+      const filename = `subscriber-monitor-${new Date().toISOString().slice(0,10)}.xlsx`;
+      XLSX.writeFile(wb, filename);
+      showToast(`Експортовано ${filtered.length} рядків у ${filename}.`, 'success');
+    }
+
+    function toggleQuick(values) {
+      const set = new Set(state.quickFilters);
+      const active = values.every(v => set.has(v));
+      if (active) values.forEach(v => set.delete(v));
+      else values.forEach(v => set.add(v));
+      state.quickFilters = [...set].sort((a,b) => a-b);
+      rerender();
+    }
+
+    els.uploadBtn.addEventListener('click', () => { void openFileUsingUploadMethod(false); });
+    els.fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      await parseFile(file);
+      e.target.value = '';
+    });
+
+    els.dropzone.addEventListener('dragover', (e) => e.preventDefault());
+    els.dropzone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files?.[0];
+      if (!file) return;
+      await parseFile(file);
+    });
+    els.dropzone.addEventListener('click', () => els.fileInput.click());
+
+    els.updateDataBtn.addEventListener('click', handleUpdateData);
+    els.clearFiltersBtn.addEventListener('click', () => clearFilters(true));
+    els.resetDataBtn.addEventListener('click', resetData);
+    els.exportBtn.addEventListener('click', exportFiltered);
+
+    els.globalSearch.addEventListener('input', (e) => {
+      state.globalSearch = e.target.value;
+      rerender();
+    });
+
+    els.qf3.addEventListener('click', () => toggleQuick([3]));
+    els.qf12.addEventListener('click', () => toggleQuick([1,2]));
+    els.qf0.addEventListener('click', () => toggleQuick([0]));
+    els.qfAll.addEventListener('click', () => {
+      state.quickFilters = [];
+      rerender();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
+        e.preventDefault();
+        els.globalSearch.focus();
+      }
+      if (e.key === 'Escape') {
+        clearFilters(false);
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      }
+    });
+
+    loadState();
+    els.globalSearch.value = state.globalSearch;
+    rerender();
+  </script>
+</body>
+</html>
