@@ -248,7 +248,6 @@
 
 
     let updateCooldownTimer = null;
-    let forceDownloadsForNextUploadClick = false;
 
     function startUpdateCooldown(seconds = 30) {
       const startedAt = Date.now();
@@ -566,13 +565,9 @@
 
       startUpdateCooldown(30);
 
-      // Background request without switching browser tab focus.
+      // Keep only background request to DCS report without opening file picker.
       triggerReportRequestInBackground();
-
-      // Reuse exact same upload-button pathway, but prefer Downloads for this run.
-      // Trigger immediately in click context so browser keeps user activation.
-      forceDownloadsForNextUploadClick = true;
-      els.uploadBtn.click();
+      showToast('Запит на оновлення відправлено. Завантажений файл оберіть кнопкою "Завантажити файл".', 'info');
     }
 
     function clearFilters(notify = true) {
@@ -617,11 +612,7 @@
       rerender();
     }
 
-    els.uploadBtn.addEventListener('click', () => {
-      const preferDownloads = forceDownloadsForNextUploadClick;
-      forceDownloadsForNextUploadClick = false;
-      void openFileUsingUploadMethod(preferDownloads);
-    });
+    els.uploadBtn.addEventListener('click', () => { void openFileUsingUploadMethod(false); });
     els.fileInput.addEventListener('change', async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
